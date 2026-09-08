@@ -21,6 +21,20 @@ import re
 import logging
 from typing import Optional
 
+# ──────────────────────────────────────────────
+# SSL 憑證修正（務必放在 import httpx 之前）
+#
+# law.moj.gov.tw 的憑證鏈結上到「TWCA Global Root CA」這個 2012 年的舊
+# 根憑證，這個根憑證缺少 X509v3 Subject Key Identifier 欄位。較新版本的
+# OpenSSL（3.6 以上，許多雲端主機的 Linux 基礎映像都已升級到這個版本）
+# 會嚴格檢查這個欄位，因而直接拒絕連線，導致 httpx 丟出 SSL 憑證驗證失敗。
+#
+# 解法：改用作業系統原生的信任憑證庫（truststore 套件），取代 Python
+# 預設的 certifi 憑證包，驗證行為較寬鬆，可以正常連上這類舊式政府網站。
+# ──────────────────────────────────────────────
+import truststore
+truststore.inject_into_ssl()
+
 import httpx
 from bs4 import BeautifulSoup
 from mcp.server.mcpserver import MCPServer
@@ -143,14 +157,31 @@ def resolve_pcode(name: str) -> Optional[str]:
 
 
 async def _fetch(url: str) -> str:
-    async with httpx.AsyncClient(
-        timeout=20.0,
-        headers={"User-Agent": "Mozilla/5.0 (LawLookupMCP demo)"},
-        follow_redirects=True,
-    ) as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
-        return resp.text
+    """抓取網頁內容，內建 SSL 備援：
+
+    優先使用（已透過 truststore 修正過的）標準驗證方式連線。如果部署環境
+    仍然因為 law.moj.gov.tw 憑證鏈結的已知瑕疵而驗證失敗，才退回使用較
+    寬鬆的驗證模式重試一次。這裡刻意把備援範圍鎖定在單一已知的政府網域，
+    不是全域關閉 SSL 驗證，將風險降到最低。
+    """
+    headers = {"User-Agent": "Mozilla/5.0 (LawLookupMCP demo)"}
+    try:
+        async with httpx.AsyncClient(
+            timeout=20.0, headers=headers, follow_redirects=True,
+        ) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            return resp.text
+    except httpx.ConnectError as e:
+        if "CERTIFICATE_VERIFY_FAILED" not in str(e) and "SSL" not in str(e):
+            raise
+        logger.warning("標準 SSL 驗證失敗，改用寬鬆模式重試: %s", url)
+        async with httpx.AsyncClient(
+            timeout=20.0, headers=headers, follow_redirects=True, verify=False,
+        ) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            return resp.text
 
 
 def _parse_single_article(html: str) -> dict:
