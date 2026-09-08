@@ -4,3 +4,4 @@ beautifulsoup4==4.14.3
 lxml==6.0.2
 uvicorn==0.52.4
 starlette==1.6.0
+truststore==0.10.4
