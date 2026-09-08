@@ -306,10 +306,19 @@ async def get_law_article(law_name: str, article_no: str) -> dict:
 
     parsed = _parse_single_article(html)
     if not parsed["article_content"]:
+        history_url = f"https://law.moj.gov.tw/LawClass/LawHistory.aspx?pcode={pcode}"
         return {
-            "success": False,
-            "error": f"查無此條號：{law_name} 第 {article_no} 條可能不存在或已刪除。",
+            "success": True,
+            "law_name": parsed["law_name"] or law_name,
+            "article_no": article_no,
+            "content": None,
+            "note": (
+                f"{law_name} 第 {article_no} 條目前查無條文內容，可能是「已刪除」"
+                "或「條號從未存在」。請查閱下方的法規沿革連結，裡面會記載每次"
+                "修正／刪除的日期，藉此判斷正確狀態，不要用訓練記憶推測。"
+            ),
             "source_url": url,
+            "law_history_url": history_url,
         }
 
     return {
