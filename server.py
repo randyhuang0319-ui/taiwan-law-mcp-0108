@@ -4,6 +4,8 @@
   1. 法務部全國法規資料庫 (law.moj.gov.tw)                  → 對照表 PCODE_MAP
   2. 臺灣證券交易所法規分享知識庫 (twse-regulation.twse.com.tw) → 對照表 TWSE_FLCODE_MAP
      （證交所、櫃買中心共同訂定的守則，以及證交所自己的規章，全國法規資料庫查不到）
+  3. 證券暨期貨法令判解查詢系統 (www.selaw.com.tw)           → 對照表 SELAW_SYSNO_MAP
+     （櫃買中心的規章；每三天更新一次）
 
 這個伺服器提供 3 個工具給 Claude 使用：
   1. list_supported_laws  - 列出這個簡化版目前認得的法規名稱
@@ -174,6 +176,17 @@ LAW_ALIASES: dict[str, str] = {
     "營業細則": "臺灣證券交易所股份有限公司營業細則",
     "證交所營業細則": "臺灣證券交易所股份有限公司營業細則",
     "上市公司資訊申報作業辦法": "臺灣證券交易所股份有限公司對有價證券上市公司及境外指數股票型基金上市之境外基金機構資訊申報作業辦法",
+    "私募應注意事項": "公開發行公司辦理私募有價證券應注意事項",
+    "私募有價證券應注意事項": "公開發行公司辦理私募有價證券應注意事項",
+    # 證券暨期貨法令判解查詢系統（SELAW_SYSNO_MAP，櫃買中心規章）常用簡稱
+    "上櫃審查準則": "財團法人中華民國證券櫃檯買賣中心證券商營業處所買賣有價證券審查準則",
+    "有價證券上櫃審查準則": "財團法人中華民國證券櫃檯買賣中心證券商營業處所買賣有價證券審查準則",
+    "興櫃審查準則": "財團法人中華民國證券櫃檯買賣中心證券商營業處所買賣興櫃股票審查準則",
+    "興櫃股票審查準則": "財團法人中華民國證券櫃檯買賣中心證券商營業處所買賣興櫃股票審查準則",
+    "上櫃公司資訊申報作業辦法": "財團法人中華民國證券櫃檯買賣中心對有價證券上櫃公司資訊申報作業辦法",
+    "上櫃公司重大訊息處理程序": "財團法人中華民國證券櫃檯買賣中心對有價證券上櫃公司重大訊息之查證暨公開處理程序",
+    "櫃買中心業務規則": "財團法人中華民國證券櫃檯買賣中心證券商營業處所買賣有價證券業務規則",
+    "業務規則": "財團法人中華民國證券櫃檯買賣中心證券商營業處所買賣有價證券業務規則",
 }
 
 REGULATION_SINGLE_URL = "https://law.moj.gov.tw/LawClass/LawSingle.aspx"
@@ -195,16 +208,36 @@ TWSE_FLCODE_MAP: dict[str, str] = {
     "臺灣證券交易所股份有限公司對有價證券上市公司重大訊息之查證暨公開處理程序": "FL007111",
     "臺灣證券交易所股份有限公司營業細則": "FL007304",
     "臺灣證券交易所股份有限公司對有價證券上市公司及境外指數股票型基金上市之境外基金機構資訊申報作業辦法": "FL007250",
+    # 以下是知識庫「相關法規」分頁收錄的金管會行政規則
+    "公開發行公司辦理私募有價證券應注意事項": "FL037281",
 }
 
 TWSE_ALL_URL = "https://twse-regulation.twse.com.tw/TW/law/DAT0201.aspx"
 TWSE_SINGLE_URL = "https://twse-regulation.twse.com.tw/TW/law/DOC01.aspx"
 TWSE_HISTORY_URL = "https://twse-regulation.twse.com.tw/TW/law/DAT01.aspx"
 
+# ──────────────────────────────────────────────
+# 1-3. 證券暨期貨法令判解查詢系統對照表（法規名稱 → sysNumber）
+#    櫃買中心沒有自己的法規資料庫，規章要從這個系統（證基會維運）查。
+#    在 www.selaw.com.tw 打開某部規章，網址列 sysNumber= 後面那串就是代碼。
+#    注意：這個系統的資料每三天更新一次，剛修正的條文可能晚幾天才出現。
+# ──────────────────────────────────────────────
+SELAW_SYSNO_MAP: dict[str, str] = {
+    "財團法人中華民國證券櫃檯買賣中心證券商營業處所買賣有價證券審查準則": "LW10812073",
+    "財團法人中華民國證券櫃檯買賣中心證券商營業處所買賣興櫃股票審查準則": "LW10825672",
+    "財團法人中華民國證券櫃檯買賣中心對有價證券上櫃公司資訊申報作業辦法": "LW10819011",
+    "財團法人中華民國證券櫃檯買賣中心對有價證券上櫃公司重大訊息之查證暨公開處理程序": "LW10812093",
+    "財團法人中華民國證券櫃檯買賣中心證券商營業處所買賣有價證券業務規則": "LW10812069",
+}
+
+SELAW_BASE_URL = "https://www.selaw.com.tw/Chinese/RegulatoryInformationResult"
+SELAW_ARTICLE_URL = "https://www.selaw.com.tw/Chinese/RegulatoryInformationResult/Article"
+
 # 各來源的對照表與顯示名稱
 SOURCES: dict[str, tuple[dict[str, str], str]] = {
     "moj": (PCODE_MAP, "法務部全國法規資料庫"),
     "twse": (TWSE_FLCODE_MAP, "臺灣證券交易所法規分享知識庫"),
+    "selaw": (SELAW_SYSNO_MAP, "證券暨期貨法令判解查詢系統（每三天更新）"),
 }
 
 _GARBAGE_INDICATORS = [
@@ -265,7 +298,9 @@ def _match_info(requested: str, name: str, exact: bool, source: str) -> dict:
 
 
 # 允許在 SSL 驗證失敗時退回寬鬆模式的網域（僅限已知的官方法規網站）
-_SSL_FALLBACK_HOSTS = {"law.moj.gov.tw", "twse-regulation.twse.com.tw"}
+_SSL_FALLBACK_HOSTS = {
+    "law.moj.gov.tw", "twse-regulation.twse.com.tw", "www.selaw.com.tw",
+}
 
 
 async def _fetch(url: str) -> str:
@@ -354,6 +389,9 @@ def _norm_article_no(no: str) -> str:
     return no.replace("之", "-").replace("－", "-")
 
 
+_TWSE_ARTICLE_LABEL = re.compile(r"^(第\s*\d+(\s*-\s*\d+)*\s*[條點]|\d+(\s*-\s*\d+)*)$")
+
+
 def _parse_twse_all(html: str) -> dict:
     """解析證交所法規分享知識庫的「所有條文」頁面。
 
@@ -381,8 +419,10 @@ def _parse_twse_all(html: str) -> dict:
         if not m:
             continue
         label = a.get_text(" ", strip=True)
-        if not (label.startswith("第") and label.endswith(("條", "點"))):
-            continue  # 同一列另有一個「相關資訊」連結，網址相同，跳過
+        # 連結文字是「第 N 條」，以點次編排的規章（如私募應注意事項）則只有數字。
+        # 同一列另有一個「相關資訊」連結，網址相同，要跳過。
+        if not _TWSE_ARTICLE_LABEL.match(label):
+            continue
         number = unquote(m.group(1)).strip()
         row = a.find_parent("tr")
         if number in seen or row is None:
@@ -431,6 +471,178 @@ def _twse_meta(parsed: dict) -> dict:
 
 
 # ──────────────────────────────────────────────
+# 證券暨期貨法令判解查詢系統（selaw）
+#
+# 這個網站的「所有條文」不是固定網址：要先打開法規頁，再把頁面上的隱藏
+# 表單（sysNumber、releaseDate、驗證碼）送到 /Article，而且伺服器會用
+# cookie 記住「目前在看哪一部」。所以每次查詢都開一個全新的連線階段，
+# 照瀏覽器的順序走兩步，最後核對回傳頁面的 sysNumber 確實是要查的那一部，
+# 不符就寧可回報失敗，也不回傳別部法規的條文。
+# ──────────────────────────────────────────────
+class _SelawMismatch(Exception):
+    pass
+
+
+def _selaw_page_info(html: str) -> dict:
+    """讀出頁面最上方的法規名稱、sysNumber、發佈日期、沿革資訊與隱藏表單欄位。"""
+    soup = BeautifulSoup(html, "lxml")
+    info = {"sysno": "", "name": "", "date": "", "amendment": "", "form": {}}
+
+    top = soup.select_one("table.con-table-top") or soup
+    for a in top.find_all("a", href=True):
+        m = re.search(r"RegulatoryInformationResult\?sysNumber=(\w+)", a["href"])
+        if m:
+            info["sysno"] = m.group(1)
+            info["name"] = a.get_text(strip=True)
+            break
+    for td in top.find_all("td"):
+        label = td.get_text(strip=True)
+        value_td = td.find_next_sibling("td")
+        if value_td is None:
+            continue
+        if label == "發佈日期":
+            info["date"] = value_td.get_text(strip=True)
+        elif label == "沿革資訊":
+            info["amendment"] = re.sub(r"\s+", "", value_td.get_text())
+
+    form = soup.find("form", id="formInfo")
+    if form:
+        for inp in form.find_all("input", attrs={"type": "hidden"}):
+            if inp.get("name"):
+                info["form"][inp["name"]] = inp.get("value", "")
+    return info
+
+
+async def _selaw_fetch_all_page(sysno: str, verify: bool = True) -> str:
+    """用全新的連線階段取得某部法規的「所有條文」頁面 HTML。"""
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+        ),
+        "Accept-Language": "zh-TW,zh;q=0.9",
+    }
+    base_url = f"{SELAW_BASE_URL}?sysNumber={sysno}"
+    async with httpx.AsyncClient(
+        timeout=30.0, headers=headers, follow_redirects=True, verify=verify,
+    ) as client:
+        first = await client.get(base_url)
+        first.raise_for_status()
+        page = _selaw_page_info(first.text)
+        if page["sysno"] != sysno:
+            raise _SelawMismatch(f"法規頁回傳的是 {page['sysno'] or '不明'}")
+
+        params = dict(page["form"])
+        params["sysNumber"] = sysno
+        second = await client.get(
+            SELAW_ARTICLE_URL, params=params, headers={"Referer": base_url},
+        )
+        second.raise_for_status()
+        if _selaw_page_info(second.text)["sysno"] != sysno:
+            raise _SelawMismatch("所有條文頁回傳的不是這部法規")
+        return second.text
+
+
+def _parse_selaw_all(html: str) -> dict:
+    """解析 selaw 的「所有條文」頁。
+
+    條文區塊（div.con-rules）底下是一串平行的元素：ol.rules-lv01 放條號，
+    緊接著的 ol.rules-lv02 放該條內容（項、款、目以巢狀 ol 表示），有附表的
+    條文後面還會跟一個放附件連結的 div。
+    """
+    soup = BeautifulSoup(html, "lxml")
+    page = _selaw_page_info(html)
+    result = {
+        "law_name": page["name"],
+        "amended_date": page["date"],
+        "latest_amendment": page["amendment"],
+        "unstructured": False,
+        "articles": [],
+    }
+    con = soup.select_one("div.con-rules")
+    if con is None:
+        return result
+
+    def lines_of(el) -> list[str]:
+        out = []
+        for s in el.find_all(string=True):
+            text = s.strip()
+            if not text:
+                continue
+            depth = sum(1 for p in s.parents if p.name == "ol" and p is not el)
+            out.append("  " * depth + text)
+        return out
+
+    current = None
+    loose: list[str] = []
+    for child in con.find_all(True, recursive=False):
+        classes = child.get("class") or []
+        if "title-rule-book" in classes:
+            continue  # 章節標題
+        if child.name == "ol" and "rules-lv01" in classes:
+            label = child.get_text(strip=True)
+            current = {"number": _norm_article_no(label), "lines": []}
+            result["articles"].append(current)
+        elif current is not None:
+            current["lines"].extend(lines_of(child))
+        else:
+            loose.extend(lines_of(child))
+
+    result["articles"] = [
+        {"number": a["number"], "content": "\n".join(a["lines"])}
+        for a in result["articles"] if a["number"]
+    ]
+    # 沒有條號的規章（以點次或段落編排）整段回傳
+    if not result["articles"] and loose:
+        result["unstructured"] = True
+        result["articles"].append({"number": "全文", "content": "\n".join(loose)})
+    return result
+
+
+def _selaw_meta(parsed: dict) -> dict:
+    meta = {}
+    if parsed["amended_date"]:
+        meta["amended_date"] = parsed["amended_date"]
+    if parsed["latest_amendment"]:
+        meta["latest_amendment"] = parsed["latest_amendment"]
+    return meta
+
+
+async def _load_selaw(name: str, sysno: str) -> dict:
+    """取得並解析 selaw 的一部法規；失敗時回傳帶 error 的 dict。"""
+    url = f"{SELAW_BASE_URL}?sysNumber={sysno}"
+    site = "證券暨期貨法令判解查詢系統"
+    html = None
+    problem = ""
+    verify = True
+    for _ in range(3):
+        try:
+            html = await _selaw_fetch_all_page(sysno, verify=verify)
+            break
+        except _SelawMismatch as e:
+            problem = f"{site}回傳的內容與要查的法規不符（{e}），為避免引用錯誤的條文，不予回傳。"
+        except httpx.ConnectError as e:
+            if verify and ("CERTIFICATE_VERIFY_FAILED" in str(e) or "SSL" in str(e)):
+                logger.warning("selaw 標準 SSL 驗證失敗，改用寬鬆模式重試")
+                verify = False
+                continue
+            return {"error": f"連線{site}失敗：{e}", "source_url": url}
+        except httpx.HTTPError as e:
+            return {"error": f"連線{site}失敗：{e}", "source_url": url}
+    if html is None:
+        return {"error": problem, "source_url": url}
+
+    parsed = _parse_selaw_all(html)
+    if not parsed["articles"]:
+        return {
+            "error": f"沒有解析到「{name}」的條文內容，網站結構可能有變動。",
+            "source_url": url,
+        }
+    parsed["source_url"] = url
+    return parsed
+
+
+# ──────────────────────────────────────────────
 # 2. 建立 MCP Server 並註冊工具
 # ──────────────────────────────────────────────
 mcp = MCPServer(
@@ -439,7 +651,9 @@ mcp = MCPServer(
         "查詢台灣現行法規條文的工具。資料來源為法務部全國法規資料庫"
         "（law.moj.gov.tw），以及臺灣證券交易所法規分享知識庫"
         "（twse-regulation.twse.com.tw，收錄上市上櫃公司治理、誠信經營、"
-        "永續發展等守則與證交所規章）。每次回覆法律問題前，請優先呼叫這裡"
+        "永續發展等守則與證交所規章）、證券暨期貨法令判解查詢系統"
+        "（www.selaw.com.tw，收錄櫃買中心規章，每三天更新一次，剛修正的"
+        "條文可能尚未反映）。每次回覆法律問題前，請優先呼叫這裡"
         "的工具取得最新條文內容，並附上 source_url 讓使用者可以核對原文，"
         "不要只憑記憶回答條號或條文內容。結果若帶有 match_note，代表查到的"
         "不是使用者輸入的那個名稱，務必先確認是否為同一部法規。"
@@ -450,7 +664,7 @@ mcp = MCPServer(
 @mcp.tool()
 def list_supported_laws() -> dict:
     """列出這個簡化版工具目前認得的法規名稱清單，並依資料來源分組
-    （法務部全國法規資料庫、臺灣證券交易所法規分享知識庫）。
+    （法務部全國法規資料庫、臺灣證券交易所法規分享知識庫、證券暨期貨法令判解查詢系統）。
     如果使用者要查的法規不在這份清單裡，請誠實告知目前查不到，
     不要用訓練記憶捏造條文。
     """
@@ -478,6 +692,8 @@ async def get_law_article(law_name: str, article_no: str) -> dict:
 
     if source == "twse":
         return await _get_twse_article(name, pcode, article_no, info)
+    if source == "selaw":
+        return await _get_selaw_article(name, pcode, article_no, info)
 
     url = f"{REGULATION_SINGLE_URL}?pcode={pcode}&flno={article_no}"
     try:
@@ -510,6 +726,41 @@ async def get_law_article(law_name: str, article_no: str) -> dict:
         "content": parsed["article_content"],
         "source_url": url,
         **info,
+    }
+
+
+async def _get_selaw_article(name: str, sysno: str, article_no: str, info: dict) -> dict:
+    """selaw 來源的單一條文：抓「所有條文」頁再挑出指定條號。"""
+    parsed = await _load_selaw(name, sysno)
+    if "error" in parsed:
+        return {"success": False, **parsed, **info}
+
+    base = {
+        "success": True,
+        "law_name": parsed["law_name"] or name,
+        "article_no": article_no,
+    }
+    tail = {"source_url": parsed["source_url"], **_selaw_meta(parsed), **info}
+    if parsed["unstructured"]:
+        return {
+            **base,
+            "content": parsed["articles"][0]["content"],
+            "note": "這部規章不是以「第 N 條」編排，無法按條號擷取，以下為全文，請自行找出對應段落。",
+            **tail,
+        }
+
+    wanted = _norm_article_no(article_no)
+    for art in parsed["articles"]:
+        if art["number"] == wanted:
+            return {**base, "content": art["content"], **tail}
+    return {
+        **base,
+        "content": None,
+        "note": (
+            f"{name} 查無第 {article_no} 條，可能是條號不存在。請開啟 source_url "
+            "點選「法規沿革」確認，不要用訓練記憶推測。"
+        ),
+        **tail,
     }
 
 
@@ -584,6 +835,20 @@ async def get_law_full_text(law_name: str) -> dict:
         }
     source, pcode, name, exact = resolved
     info = _match_info(law_name, name, exact, source)
+
+    if source == "selaw":
+        parsed = await _load_selaw(name, pcode)
+        if "error" in parsed:
+            return {"success": False, **parsed, **info}
+        return {
+            "success": True,
+            "law_name": parsed["law_name"] or name,
+            "article_count": len(parsed["articles"]),
+            "articles": parsed["articles"],
+            "source_url": parsed["source_url"],
+            **_selaw_meta(parsed),
+            **info,
+        }
 
     if source == "twse":
         url = f"{TWSE_ALL_URL}?FLCODE={pcode}"
