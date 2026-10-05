@@ -1,6 +1,9 @@
 """
 台灣法規查詢 MCP Server（簡化教學版）
-資料來源：法務部全國法規資料庫 (law.moj.gov.tw)
+資料來源：
+  1. 法務部全國法規資料庫 (law.moj.gov.tw)                  → 對照表 PCODE_MAP
+  2. 臺灣證券交易所法規分享知識庫 (twse-regulation.twse.com.tw) → 對照表 TWSE_FLCODE_MAP
+     （證交所、櫃買中心共同訂定的守則，以及證交所自己的規章，全國法規資料庫查不到）
 
 這個伺服器提供 3 個工具給 Claude 使用：
   1. list_supported_laws  - 列出這個簡化版目前認得的法規名稱
@@ -20,6 +23,7 @@
 import re
 import logging
 from typing import Optional
+from urllib.parse import unquote
 
 # ──────────────────────────────────────────────
 # SSL 憑證修正（務必放在 import httpx 之前）
@@ -146,10 +150,52 @@ LAW_ALIASES: dict[str, str] = {
     "股東會議事手冊辦法": "公開發行公司股東會議事手冊應行記載及遵行事項辦法",
     "公開收購辦法": "公開收購公開發行公司有價證券管理辦法",
     "董監持股成數規則": "公開發行公司董事監察人股權成數及查核實施規則",
+    "中華民國刑法": "刑法",
+    # 證交所法規分享知識庫（TWSE_FLCODE_MAP）常用簡稱
+    "公司治理實務守則": "上市上櫃公司治理實務守則",
+    "治理實務守則": "上市上櫃公司治理實務守則",
+    "誠信經營守則": "上市上櫃公司誠信經營守則",
+    "永續發展實務守則": "上市上櫃公司永續發展實務守則",
+    "永續報告書作業辦法": "上市公司編製與申報永續報告書作業辦法",
+    "上市審查準則": "臺灣證券交易所股份有限公司有價證券上市審查準則",
+    "有價證券上市審查準則": "臺灣證券交易所股份有限公司有價證券上市審查準則",
+    "上市公司重大訊息處理程序": "臺灣證券交易所股份有限公司對有價證券上市公司重大訊息之查證暨公開處理程序",
+    "重大訊息處理程序": "臺灣證券交易所股份有限公司對有價證券上市公司重大訊息之查證暨公開處理程序",
+    "營業細則": "臺灣證券交易所股份有限公司營業細則",
+    "證交所營業細則": "臺灣證券交易所股份有限公司營業細則",
+    "上市公司資訊申報作業辦法": "臺灣證券交易所股份有限公司對有價證券上市公司及境外指數股票型基金上市之境外基金機構資訊申報作業辦法",
 }
 
 REGULATION_SINGLE_URL = "https://law.moj.gov.tw/LawClass/LawSingle.aspx"
 REGULATION_ALL_URL = "https://law.moj.gov.tw/LawClass/LawAll.aspx"
+
+# ──────────────────────────────────────────────
+# 1-2. 證交所法規分享知識庫對照表（法規名稱 → FLCODE）
+#    用法跟上面的 pcode 一樣：在 twse-regulation.twse.com.tw 打開某部規章，
+#    網址列 FLCODE= 後面那串就是代碼，例如營業細則：
+#    https://twse-regulation.twse.com.tw/TW/law/DAT0201.aspx?FLCODE=FL007304
+#    要新增規章，照樣加一行「"正式名稱": "FLxxxxxx",」即可。
+# ──────────────────────────────────────────────
+TWSE_FLCODE_MAP: dict[str, str] = {
+    "上市上櫃公司治理實務守則": "FL020553",
+    "上市上櫃公司誠信經營守則": "FL055768",
+    "上市上櫃公司永續發展實務守則": "FL052368",
+    "上市公司編製與申報永續報告書作業辦法": "FL075209",
+    "臺灣證券交易所股份有限公司有價證券上市審查準則": "FL007326",
+    "臺灣證券交易所股份有限公司對有價證券上市公司重大訊息之查證暨公開處理程序": "FL007111",
+    "臺灣證券交易所股份有限公司營業細則": "FL007304",
+    "臺灣證券交易所股份有限公司對有價證券上市公司及境外指數股票型基金上市之境外基金機構資訊申報作業辦法": "FL007250",
+}
+
+TWSE_ALL_URL = "https://twse-regulation.twse.com.tw/TW/law/DAT0201.aspx"
+TWSE_SINGLE_URL = "https://twse-regulation.twse.com.tw/TW/law/DOC01.aspx"
+TWSE_HISTORY_URL = "https://twse-regulation.twse.com.tw/TW/law/DAT01.aspx"
+
+# 各來源的對照表與顯示名稱
+SOURCES: dict[str, tuple[dict[str, str], str]] = {
+    "moj": (PCODE_MAP, "法務部全國法規資料庫"),
+    "twse": (TWSE_FLCODE_MAP, "臺灣證券交易所法規分享知識庫"),
+}
 
 _GARBAGE_INDICATORS = [
     "本網站係提供法規之最新動態資訊",
@@ -165,21 +211,51 @@ def _looks_like_article(text: str) -> bool:
     return not any(g in text for g in _GARBAGE_INDICATORS)
 
 
-def resolve_pcode(name: str) -> Optional[str]:
-    """把使用者輸入的法規名稱（含縮寫、模糊）轉成 pcode"""
-    if name in PCODE_MAP:
-        return PCODE_MAP[name]
-    if name in LAW_ALIASES:
-        return PCODE_MAP.get(LAW_ALIASES[name])
-    # 模糊比對：輸入包含在正式名稱裡，或正式名稱包含輸入
+def resolve_law(name: str) -> Optional[tuple[str, str, str, bool]]:
+    """把使用者輸入的法規名稱（含縮寫、模糊）轉成 (來源, 代碼, 正式名稱, 是否精確)。
+
+    來源為 SOURCES 的鍵（"moj" 或 "twse"）。「是否精確」為 False 代表是靠
+    模糊比對找到的，呼叫端會在結果裡註明實際查的是哪一部，避免張冠李戴。
+    """
+    name = name.strip().replace("「", "").replace("」", "")
+    name = name.replace("台灣證券交易所", "臺灣證券交易所")
+    name = LAW_ALIASES.get(name, name)
+    for source, (table, _) in SOURCES.items():
+        if name in table:
+            return source, table[name], name, True
+    if len(name) < 2:
+        return None
+    # 模糊比對：只接受「輸入是正式名稱的一部分」。
+    # 反方向（正式名稱是輸入的一部分）刻意不比對：那會把「證券交易法施行細則」
+    # 當成「證券交易法」，回傳另一部法規的條文。
     candidates = [
-        (key, code) for key, code in PCODE_MAP.items()
-        if name in key or key in name
+        (key, source, code)
+        for source, (table, _) in SOURCES.items()
+        for key, code in table.items()
+        if name in key
     ]
     if candidates:
         candidates.sort(key=lambda x: len(x[0]))
-        return candidates[0][1]
+        key, source, code = candidates[0]
+        return source, code, key, False
     return None
+
+
+def _match_info(requested: str, name: str, exact: bool, source: str) -> dict:
+    """每個查詢結果都附上的欄位：資料來自哪個網站，以及模糊比對時的提醒。"""
+    info = {"source_site": SOURCES[source][1]}
+    if not exact:
+        info["requested_name"] = requested
+        info["match_note"] = (
+            f"清單中沒有名稱完全等於「{requested}」的法規，以下是名稱最接近的"
+            f"「{name}」的內容。請確認這是否為使用者要查的法規；若不是，"
+            "請告知查無此法規，不要把這份內容當成使用者要的那一部。"
+        )
+    return info
+
+
+# 允許在 SSL 驗證失敗時退回寬鬆模式的網域（僅限已知的官方法規網站）
+_SSL_FALLBACK_HOSTS = {"law.moj.gov.tw", "twse-regulation.twse.com.tw"}
 
 
 async def _fetch(url: str) -> str:
@@ -199,6 +275,8 @@ async def _fetch(url: str) -> str:
             resp.raise_for_status()
             return resp.text
     except httpx.ConnectError as e:
+        if httpx.URL(url).host not in _SSL_FALLBACK_HOSTS:
+            raise
         if "CERTIFICATE_VERIFY_FAILED" not in str(e) and "SSL" not in str(e):
             raise
         logger.warning("標準 SSL 驗證失敗，改用寬鬆模式重試: %s", url)
@@ -260,6 +338,88 @@ def _parse_law_all(html: str) -> dict:
     return result
 
 
+def _norm_article_no(no: str) -> str:
+    """把「第 2 條之 1」「2之1」「2-1」等寫法統一成 "2-1" 以便比對。"""
+    no = re.sub(r"[第條點\s]", "", no)
+    return no.replace("之", "-").replace("－", "-")
+
+
+def _parse_twse_all(html: str) -> dict:
+    """解析證交所法規分享知識庫的「所有條文」頁面。
+
+    頁面是一張表格，每一列的第一格是連到單一條文頁的連結（文字「第 N 條」，
+    網址帶 FLNO=N），第二格是條文內容。這裡以那個連結為定位點，不依賴
+    CSS class，網站改版時比較不容易壞。
+    """
+    soup = BeautifulSoup(html, "lxml")
+    result = {
+        "amended_date": "",
+        "not_yet_effective": False,
+        "unstructured": False,
+        "articles": [],
+    }
+
+    page_text = soup.get_text(" ", strip=True)
+    m = re.search(r"修正日期\s*[：:]?\s*(民國\s*\d+\s*年\s*\d+\s*月\s*\d+\s*日)", page_text)
+    if m:
+        result["amended_date"] = re.sub(r"\s+", " ", m.group(1))
+    result["not_yet_effective"] = "尚未生效" in page_text
+
+    seen: set[str] = set()
+    for a in soup.find_all("a", href=True):
+        m = re.search(r"DOC01\.aspx\?.*?FLNO=([^&#]+)", a["href"], re.I)
+        if not m:
+            continue
+        label = a.get_text(" ", strip=True)
+        if not (label.startswith("第") and label.endswith(("條", "點"))):
+            continue  # 同一列另有一個「相關資訊」連結，網址相同，跳過
+        number = unquote(m.group(1)).strip()
+        row = a.find_parent("tr")
+        if number in seen or row is None:
+            continue
+
+        pres = row.find_all("pre")
+        if pres:
+            content = "\n".join(p.get_text() for p in pres)
+        else:
+            own_cell = a.find_parent(["td", "th"])
+            texts = [
+                c.get_text("\n", strip=True)
+                for c in row.find_all(["td", "th"]) if c is not own_cell
+            ]
+            texts = [t for t in texts if t and t != "相關資訊"]
+            content = max(texts, key=len) if texts else ""
+        content = "\n".join(
+            line.rstrip() for line in content.strip("\n").splitlines()
+        ).strip()
+        if content:
+            seen.add(number)
+            result["articles"].append({"number": number, "content": content})
+
+    # 有些規章不是「第 N 條」的格式（例如以一、二、三點編排），沒有逐條連結，
+    # 這時把頁面上的條文區塊整段回傳。
+    if not result["articles"]:
+        blocks = [p.get_text().strip("\n") for p in soup.find_all("pre")]
+        blocks = [b for b in blocks if b.strip()]
+        if blocks:
+            result["unstructured"] = True
+            result["articles"].append({"number": "全文", "content": "\n".join(blocks)})
+
+    return result
+
+
+def _twse_meta(parsed: dict) -> dict:
+    meta = {}
+    if parsed["amended_date"]:
+        meta["amended_date"] = parsed["amended_date"]
+    if parsed["not_yet_effective"]:
+        meta["effective_note"] = (
+            "網站標示本法規部分或全部條文尚未生效，請開啟 source_url 確認"
+            "各條文的生效日期後再引用。"
+        )
+    return meta
+
+
 # ──────────────────────────────────────────────
 # 2. 建立 MCP Server 並註冊工具
 # ──────────────────────────────────────────────
@@ -267,20 +427,26 @@ mcp = MCPServer(
     name="taiwan-law-lookup",
     instructions=(
         "查詢台灣現行法規條文的工具。資料來源為法務部全國法規資料庫"
-        "（law.moj.gov.tw）。每次回覆法律問題前，請優先呼叫這裡的工具"
-        "取得最新條文內容，並附上 source_url 讓使用者可以核對原文，"
-        "不要只憑記憶回答條號或條文內容。"
+        "（law.moj.gov.tw），以及臺灣證券交易所法規分享知識庫"
+        "（twse-regulation.twse.com.tw，收錄上市上櫃公司治理、誠信經營、"
+        "永續發展等守則與證交所規章）。每次回覆法律問題前，請優先呼叫這裡"
+        "的工具取得最新條文內容，並附上 source_url 讓使用者可以核對原文，"
+        "不要只憑記憶回答條號或條文內容。結果若帶有 match_note，代表查到的"
+        "不是使用者輸入的那個名稱，務必先確認是否為同一部法規。"
     ),
 )
 
 
 @mcp.tool()
 def list_supported_laws() -> dict:
-    """列出這個簡化版工具目前認得的法規名稱清單（約 45 部常用法規）。
+    """列出這個簡化版工具目前認得的法規名稱清單，並依資料來源分組
+    （法務部全國法規資料庫、臺灣證券交易所法規分享知識庫）。
     如果使用者要查的法規不在這份清單裡，請誠實告知目前查不到，
     不要用訓練記憶捏造條文。
     """
-    return {"laws": sorted(PCODE_MAP.keys()), "count": len(PCODE_MAP)}
+    by_source = {label: sorted(table.keys()) for table, label in SOURCES.values()}
+    laws = sorted(name for names in by_source.values() for name in names)
+    return {"laws": laws, "count": len(laws), "by_source": by_source}
 
 
 @mcp.tool()
@@ -291,12 +457,17 @@ async def get_law_article(law_name: str, article_no: str) -> dict:
         law_name: 法規名稱，例如「勞動基準法」「民法」，也支援常見縮寫如「勞基法」。
         article_no: 條號，例如 "9" 或 "247-1"（之1 用連字號表示）。
     """
-    pcode = resolve_pcode(law_name)
-    if not pcode:
+    resolved = resolve_law(law_name)
+    if not resolved:
         return {
             "success": False,
             "error": f"目前查不到「{law_name}」，可能不在這個簡化版的內建清單中。",
         }
+    source, pcode, name, exact = resolved
+    info = _match_info(law_name, name, exact, source)
+
+    if source == "twse":
+        return await _get_twse_article(name, pcode, article_no, info)
 
     url = f"{REGULATION_SINGLE_URL}?pcode={pcode}&flno={article_no}"
     try:
@@ -309,24 +480,82 @@ async def get_law_article(law_name: str, article_no: str) -> dict:
         history_url = f"https://law.moj.gov.tw/LawClass/LawHistory.aspx?pcode={pcode}"
         return {
             "success": True,
-            "law_name": parsed["law_name"] or law_name,
+            "law_name": name,
             "article_no": article_no,
             "content": None,
             "note": (
-                f"{law_name} 第 {article_no} 條目前查無條文內容，可能是「已刪除」"
+                f"{name} 第 {article_no} 條目前查無條文內容，可能是「已刪除」"
                 "或「條號從未存在」。請查閱下方的法規沿革連結，裡面會記載每次"
                 "修正／刪除的日期，藉此判斷正確狀態，不要用訓練記憶推測。"
             ),
             "source_url": url,
             "law_history_url": history_url,
+            **info,
         }
 
     return {
         "success": True,
-        "law_name": parsed["law_name"] or law_name,
+        "law_name": name,
         "article_no": article_no,
         "content": parsed["article_content"],
         "source_url": url,
+        **info,
+    }
+
+
+async def _get_twse_article(name: str, flcode: str, article_no: str, info: dict) -> dict:
+    """證交所來源的單一條文：抓「所有條文」頁再挑出指定條號。
+
+    這樣單條與全文共用同一套解析，也能順便取得修正日期。
+    """
+    all_url = f"{TWSE_ALL_URL}?FLCODE={flcode}"
+    try:
+        html = await _fetch(all_url)
+    except httpx.HTTPError as e:
+        return {"success": False, "error": f"連線證交所法規分享知識庫失敗：{e}"}
+
+    parsed = _parse_twse_all(html)
+    if not parsed["articles"]:
+        return {
+            "success": False,
+            "error": f"沒有解析到「{name}」的條文內容，網站結構可能有變動。",
+            "source_url": all_url,
+            **info,
+        }
+
+    base = {"success": True, "law_name": name, "article_no": article_no}
+    if parsed["unstructured"]:
+        return {
+            **base,
+            "content": parsed["articles"][0]["content"],
+            "note": "這部規章不是以「第 N 條」編排，無法按條號擷取，以下為全文，請自行找出對應段落。",
+            "source_url": all_url,
+            **_twse_meta(parsed),
+            **info,
+        }
+
+    wanted = _norm_article_no(article_no)
+    for art in parsed["articles"]:
+        if _norm_article_no(art["number"]) == wanted:
+            return {
+                **base,
+                "content": art["content"],
+                "source_url": f"{TWSE_SINGLE_URL}?FLCODE={flcode}&FLNO={art['number']}",
+                **_twse_meta(parsed),
+                **info,
+            }
+
+    return {
+        **base,
+        "content": None,
+        "note": (
+            f"{name} 查無第 {article_no} 條，可能是條號不存在。請查閱下方的"
+            "歷史沿革連結確認，不要用訓練記憶推測。"
+        ),
+        "source_url": all_url,
+        "law_history_url": f"{TWSE_HISTORY_URL}?FLCODE={flcode}",
+        **_twse_meta(parsed),
+        **info,
     }
 
 
@@ -337,33 +566,43 @@ async def get_law_full_text(law_name: str) -> dict:
     Args:
         law_name: 法規名稱，例如「個人資料保護法」，也支援常見縮寫。
     """
-    pcode = resolve_pcode(law_name)
-    if not pcode:
+    resolved = resolve_law(law_name)
+    if not resolved:
         return {
             "success": False,
             "error": f"目前查不到「{law_name}」，可能不在這個簡化版的內建清單中。",
         }
+    source, pcode, name, exact = resolved
+    info = _match_info(law_name, name, exact, source)
 
-    url = f"{REGULATION_ALL_URL}?pcode={pcode}"
+    if source == "twse":
+        url = f"{TWSE_ALL_URL}?FLCODE={pcode}"
+        site = "證交所法規分享知識庫"
+    else:
+        url = f"{REGULATION_ALL_URL}?pcode={pcode}"
+        site = "全國法規資料庫"
     try:
         html = await _fetch(url)
     except httpx.HTTPError as e:
-        return {"success": False, "error": f"連線全國法規資料庫失敗：{e}"}
+        return {"success": False, "error": f"連線{site}失敗：{e}"}
 
-    parsed = _parse_law_all(html)
+    parsed = _parse_twse_all(html) if source == "twse" else _parse_law_all(html)
     if not parsed["articles"]:
         return {
             "success": False,
-            "error": f"沒有解析到「{law_name}」的條文內容，網站結構可能有變動。",
+            "error": f"沒有解析到「{name}」的條文內容，網站結構可能有變動。",
             "source_url": url,
+            **info,
         }
 
     return {
         "success": True,
-        "law_name": parsed["law_name"] or law_name,
+        "law_name": name,
         "article_count": len(parsed["articles"]),
         "articles": parsed["articles"],
         "source_url": url,
+        **(_twse_meta(parsed) if source == "twse" else {}),
+        **info,
     }
 
 
